@@ -107,6 +107,45 @@ Prefer a domain with a conventional HTTPS endpoint. If no domain is available, c
 
 Avoid binding a subscription web server to TCP 443 if Xray already owns that port. A nonstandard HTTPS port can work in a URL, but its matching Lightsail TCP rule must be added. If using TCP 80 for HTTPS after ACME issuance, renewal must briefly free port 80 or use a suitable webroot mechanism.
 
+## Public IP changes and IP certificates
+
+An ordinary Lightsail public IPv4 address can change after stop/start. Attaching a Lightsail static IP prevents accidental endpoint changes, but do that only after confirming the chosen address has acceptable destination-site reputation.
+
+Treat an IP change as a coordinated migration:
+
+1. Confirm SSH reaches the same intended instance at the new address and re-check listeners and service health.
+2. Test important destinations directly from the server before changing proxy configuration. This separates server-egress or IP-reputation failures from transport failures.
+3. Issue a new trusted certificate whose SAN contains the new IP. With a current Certbot that supports IP certificates, use the current short-lived IP-certificate profile and standalone validation. Verify the exact command against current official documentation.
+4. Update the Nginx `server_name` and certificate paths, the Hysteria2 certificate copy/reload hook, and every client `server`/IP `sni` field. Reality credentials and its camouflage SNI usually do not need rotation merely because the public IP changed.
+5. Disable or archive the old IP's renewal configuration so unattended renewal does not repeatedly fail. Keep a reversible backup until the new endpoint is proven.
+6. Validate Nginx, Xray, and Hysteria2 configuration before restarting. Fetch the subscription with normal TLS verification and parse it with the user's Mihomo binary.
+7. Run `certbot renew --cert-name <NEW_IP> --dry-run --run-deploy-hooks`, then verify Nginx and Hysteria2 are active and the subscription remains reachable.
+8. Ensure a persistent timer checks the short-lived certificate at least daily. The post-hook must copy the renewed certificate/key to the Hysteria-readable directory with restrictive permissions, restart Hysteria2, and restore Nginx after standalone validation.
+
+Do not reuse the old IP certificate for a new address, set `skip-cert-verify: true`, or leave both old and new renewal jobs active as shortcuts.
+
+## Destination blocking and Google `automated queries`
+
+When Reality works but HY2 does not, first force each named node through a temporary Mihomo instance and test the same URL. If both fail only for one destination, test that destination directly from the VPS. If direct server egress receives the same rejection, the cause is the AWS exit IP or destination policy—not HY2, Reality, DNS routing, or a missing Clash rule.
+
+For Google Scholar, test both the homepage and a small search request. A fresh IP may remove an `automated queries` rejection, but this is not guaranteed and the reputation can change again. Do not silently route Scholar, X, or Telegram through a third-party provider to hide an AWS reputation problem; add external routing only when the user explicitly requests it.
+
+## Persistent monthly traffic label
+
+Use `vnStat` on the public interface for lightweight monthly accounting. State its scope accurately: interface totals include proxy traffic plus small amounts of SSH, certificate renewal, package downloads, and subscription fetches. It is not per-user or per-protocol accounting.
+
+For a Clash Verge-visible label:
+
+1. Enable `vnstat.service` and identify the public interface rather than assuming its name.
+2. Read the current calendar month's RX + TX bytes from `vnstat --json`. If accounting begins mid-month immediately after a reboot, optionally store a one-time, month-keyed offset from the interface counters so already-observed boot traffic is not lost. Never carry that offset into the next month.
+3. Keep the ordinary HY2 proxy name stable, for example `AWS-JP-HY2`.
+4. Duplicate its complete, working Hysteria2 definition and name the duplicate `📊 本月累计 <VALUE> GB`. Use the same server, certificate validation, authentication, and obfuscation settings; do not create a dead or fake endpoint merely for display.
+5. Add the traffic-label node to the manual selector, but not to the automatic fallback group. Selecting it should still provide a normal HY2/UDP connection.
+6. Update both the duplicate proxy name and its selector reference atomically every 15 minutes. Use a systemd oneshot service and persistent timer. Validate that exactly one proxy definition and one selector reference carry the label.
+7. Because the server-side YAML changes do not rewrite a profile already cached by Clash Verge, tell the user to refresh the subscription to see the latest label.
+
+Renaming the main HY2 node on every counter update can reset client selection. A separate working duplicate avoids that disruption while still appearing as a Hysteria2/UDP node.
+
 ## Verification and diagnosis
 
 1. Check Xray and Hysteria2 service status and confirm separate TCP/UDP 443 listeners.
@@ -114,6 +153,7 @@ Avoid binding a subscription web server to TCP 443 if Xray already owns that por
 3. Launch a temporary Mihomo process with a different mixed port. Fetch a small test endpoint through each named node individually; never switch the user's active profile just to test.
 4. Verify the subscription with regular HTTPS validation, then ensure the fetched YAML has the expected hash and parses successfully.
 5. For speed diagnosis, compare a fixed-size direct download, the same download through the temporary proxy, and server egress. Record test duration and endpoint. Only persist a bandwidth-hint change if it improves the proxy result.
+6. If a dynamic traffic-label node exists, force one request through that exact node name and confirm it reaches a small HTTPS endpoint. Syntax validation alone does not prove its duplicated credentials work.
 
 Common outcomes:
 
