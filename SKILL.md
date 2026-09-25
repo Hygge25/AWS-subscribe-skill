@@ -31,6 +31,7 @@ Deploy a personal, secure Clash-compatible profile while preserving the user's e
 6. If speed is disappointing, compare the user's direct connection, temporary proxy connection, and server egress before changing bandwidth hints. Update only parameters with measured benefit and re-test.
 7. When the public IP changes, treat it as a certificate and client-endpoint migration—not a text-only substitution. Follow the runbook's IP migration checklist and perform a renewal dry run.
 8. When monthly usage is requested, use persistent interface accounting and expose it as a duplicate, working HY2 node label. Keep the main HY2 node name stable so profile refreshes do not disturb the selected node.
+9. For domestic-direct routing, keep Mihomo in `rule` mode, put private and China rules before the final proxy fallback, align DNS policy with those rules, and verify actual rule hits rather than syntax alone.
 
 ## Handoff
 

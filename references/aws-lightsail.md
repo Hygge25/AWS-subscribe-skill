@@ -146,6 +146,49 @@ For a Clash Verge-visible label:
 
 Renaming the main HY2 node on every counter update can reset client selection. A separate working duplicate avoids that disruption while still appearing as a Hysteria2/UDP node.
 
+## Domestic-direct and international-proxy routing
+
+A profile containing only `MATCH,PROXY` sends domestic and international traffic through the VPS. To keep Chinese destinations direct, use `mode: rule` and order rules from specific to general because Mihomo stops at the first match.
+
+Use a routing shape like this, adapting private ranges if the client environment requires more:
+
+```yaml
+rules:
+  - GEOSITE,private,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,PROXY
+```
+
+Align DNS selection with routing so Chinese and private domains use a suitable domestic resolver:
+
+```yaml
+dns:
+  nameserver-policy:
+    "geosite:cn,private":
+      - https://dns.alidns.com/dns-query
+  direct-nameserver:
+    - https://dns.alidns.com/dns-query
+  direct-nameserver-follow-policy: true
+```
+
+Keep at least one independent resolver in the general `nameserver` list for non-China destinations. Do not use only `DOMAIN-SUFFIX,cn`: many Chinese services use `.com`, `.net`, and CDN hostnames, so `GEOSITE,cn` plus `GEOIP,CN` provides broader coverage.
+
+Validation must use current GeoSite and GeoIP data. If an isolated Mihomo test directory reports a missing `GeoSite.dat`, reuse the data bundled with the user's Clash Verge installation or explicitly provision current data in the test directory; do not confuse a data-download timeout with an invalid profile.
+
+After parsing, start an isolated Mihomo instance on a non-conflicting port and inspect logs for two real requests:
+
+- A representative Chinese domain should log a `GeoSite(cn)` or `GEOIP(CN)` match using `DIRECT`.
+- A representative international endpoint should reach the final `MATCH` using the selected proxy group.
+
+Tell the user to refresh the subscription and confirm Clash Verge is in `Rule`, not `Global`, mode. A correct server-side profile cannot enforce its rule list while the client is globally overriding all traffic.
+
 ## Verification and diagnosis
 
 1. Check Xray and Hysteria2 service status and confirm separate TCP/UDP 443 listeners.
@@ -154,6 +197,7 @@ Renaming the main HY2 node on every counter update can reset client selection. A
 4. Verify the subscription with regular HTTPS validation, then ensure the fetched YAML has the expected hash and parses successfully.
 5. For speed diagnosis, compare a fixed-size direct download, the same download through the temporary proxy, and server egress. Record test duration and endpoint. Only persist a bandwidth-hint change if it improves the proxy result.
 6. If a dynamic traffic-label node exists, force one request through that exact node name and confirm it reaches a small HTTPS endpoint. Syntax validation alone does not prove its duplicated credentials work.
+7. If split routing exists, inspect Mihomo logs to prove at least one domestic request uses `DIRECT` and one international request uses the proxy. Merely seeing both sites load is not enough.
 
 Common outcomes:
 
